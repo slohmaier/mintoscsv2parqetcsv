@@ -14,7 +14,23 @@ import os
 import re
 import sys
 
+class Transaction:
+    def __init__(self, date, time, amount):
+        self.date = date
+        self.time = time
+        self.amount = amount
+
+class Transactions:
+    def __init__(self):
+        self.withdrawals = []
+        self.interests = []
+        self.deposits = []
+        self.taxes = []
+        self.withdrawals = []
+
 REGEX_HOLDING_URL = re.compile(r'https://app\.parqet\.com/p/\w+/h/(?P<holdingid>\w+)')
+REGEX_LOAN = re.compile(r'.*\(Loan (?P<loanid>\S+)\).*')
+
 def parse_amount(amount: str):
     return '{:.4f}'.format(float(amount))
 
@@ -48,41 +64,67 @@ if __name__ == '__main__':
     mcsvFile = open(args.mcsv, 'r')
     mcsv = csv.reader(mcsvFile)
 
-    pcsvFile = open(args.pcsv, 'w+')
-    pcsv = csv.writer(pcsvFile, 'unix', quoting=0, delimiter=';')
-    pcsv.writerow(['date', 'time', 'amount', 'tax', 'fee', 'type', 'holding'])
-
+    transactions = {}
     for row in mcsv:
         #TODO: TransferOut
-        cDate = ''
-        cTime = ''
+        cDate = None
+        cTime = None
         if row[0].find(' ') != -1:
             cDate, cTime = row[0].split(' ', 1) 
+        if cDate is None or cTime is None:
+            continue
 
         cFee = '0'
         cType = ''
         cAmount = '0'
         cTax = '0'
         cHolding = holdingId
-        writeRow = True
+        cAmount = parse_amount(row[-4])
+        match = REGEX_LOAN.match(row[2])
+        if match:
+            cLoan = match.group('loanid')
+        else:
+            cLoan = row[2]
+        if not cLoan in transactions:
+            transactions[cLoan] = Transactions()
+        transaction = Transaction(cDate, cTime, cAmount)
 
         if row[-1] == 'Deposits':
-            cType = 'TransferIn'
-            cAmount = parse_amount(row[-4])
+            transactions[cLoan].deposits.append(transaction)
         elif row[-1] == 'Interest received':
-            cType = 'Interest'
-            cAmount = parse_amount(row[-4])
-            writeRow = float(cAmount) != 0.0
+            transactions[cLoan].interests.append(transaction)
         elif row[-1] == 'Tax withholding':
-            cType = 'Interest'
-            cTax = parse_amount(row[-4])
-            writeRow = float(cTax) != 0.0
-            writeRow = False #TODO: Taxes are not supported for now
-        else:
-            writeRow = False
+            transactions[cLoan].taxes.append(transaction)
+        #TODO: withdrawal
 
-        if writeRow:
-            pcsv.writerow([cDate, cTime, cAmount, cTax, cFee, cType, cHolding])
+    for loan in transactions:
+        if len(transactions[loan].interests) != len(transactions[loan].taxes):
+            raise ValueError('Loand {0} interests and taxes are not the same!'.format(loan))
+
+    rows = []
+    for loan in transactions:
+        t = transactions[loan]
+        for deposit in t.deposits:
+            rows.append([deposit.date, deposit.time, deposit.amount, '0', '0', 'TransferIn', holdingId])
+        for withdrawal in t.withdrawals:
+            rows.append([withdrawal.date, withdrawal.time, withdrawal.amount, '0', '0', 'TransferOut', holdingId])
+        for i in range(len(transactions[loan].interests)):
+            rows.append([
+                transactions[loan].interests[i].date,
+                transactions[loan].interests[i].time,
+                transactions[loan].interests[i].amount,
+                transactions[loan].taxes[i].amount,
+                '0', 'Interest', holdingId])
+
+    pcsvFile = open(args.pcsv, 'w+')
+    pcsv = csv.writer(pcsvFile, 'unix', quoting=0, delimiter=';')
+    pcsv.writerow(['date', 'time', 'amount', 'tax', 'fee', 'type', 'holding'])
+
+    def rowSorter(row):
+        return row[0] + row[1]
+    rows.sort(key=rowSorter)
+    for row in rows:
+        pcsv.writerow(row)
 
     mcsvFile.close()
     pcsvFile.close()
