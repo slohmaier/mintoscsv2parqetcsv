@@ -32,7 +32,7 @@ REGEX_HOLDING_URL = re.compile(r'https://app\.parqet\.com/p/\w+/h/(?P<holdingid>
 REGEX_LOAN = re.compile(r'.*\(Loan (?P<loanid>\S+)\).*')
 
 def parse_amount(amount: str):
-    return '{:.4f}'.format(float(amount))
+    return '{:.6f}'.format(float(amount))
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser('mintoscsv2parqetcsv',
@@ -94,12 +94,8 @@ if __name__ == '__main__':
         elif row[-1] == 'Interest received':
             transactions[cLoan].interests.append(transaction)
         elif row[-1] == 'Tax withholding':
-            transactions[cLoan].taxes.append(transaction)
+            transactions[cLoan].interests.append(transaction)
         #TODO: withdrawal
-
-    for loan in transactions:
-        if len(transactions[loan].interests) != len(transactions[loan].taxes):
-            raise ValueError('Loand {0} interests and taxes are not the same!'.format(loan))
 
     rows = []
     for loan in transactions:
@@ -108,12 +104,14 @@ if __name__ == '__main__':
             rows.append([deposit.date, deposit.time, deposit.amount, '0', '0', 'TransferIn', holdingId])
         for withdrawal in t.withdrawals:
             rows.append([withdrawal.date, withdrawal.time, withdrawal.amount, '0', '0', 'TransferOut', holdingId])
-        for i in range(len(transactions[loan].interests)):
+        for interest in t.interests:
+            if float(interest.amount) == 0.0:
+                continue
             rows.append([
-                transactions[loan].interests[i].date,
-                transactions[loan].interests[i].time,
-                transactions[loan].interests[i].amount,
-                transactions[loan].taxes[i].amount,
+                interest.date,
+                interest.time,
+                interest.amount,
+                '0',
                 '0', 'Interest', holdingId])
 
     pcsvFile = open(args.pcsv, 'w+')
