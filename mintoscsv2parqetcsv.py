@@ -66,7 +66,6 @@ if __name__ == '__main__':
 
     transactions = {}
     for row in mcsv:
-        #TODO: TransferOut
         cDate = None
         cTime = None
         if row[0].find(' ') != -1:
@@ -95,7 +94,10 @@ if __name__ == '__main__':
             transactions[cLoan].interests.append(transaction)
         elif row[-1] == 'Tax withholding':
             transactions[cLoan].interests.append(transaction)
-        #TODO: withdrawal
+        elif row[-1] == 'Withdrawal':
+            if transaction.amount.startswith('-'):
+                transaction.amount = transaction.amount[1:]
+            transactions[cLoan].withdrawals.append(transaction)
 
     rows = []
     for loan in transactions:
